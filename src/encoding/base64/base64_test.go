@@ -529,3 +529,20 @@ func TestDecoderRaw(t *testing.T) {
 		t.Errorf("reading NewDecoder(URLEncoding, %q) = %x, %v, want %x, nil", source+"==", dec3, err, want)
 	}
 }
+
+func TestEncoderReader(t *testing.T) {
+	var (
+		buff []byte
+		err  error
+	)
+	for _, p := range pairs {
+		encoder := NewEncoderReader(StdEncoding, strings.NewReader(p.decoded))
+		if buff, err = ioutil.ReadAll(encoder); err != nil {
+			t.Error(err)
+			return
+		}
+		if err != nil || !bytes.Equal(buff, []byte(p.encoded)) {
+			t.Errorf("reading NewEncoderReader(StdEncoding, %q) = %x, %v, want %x, nil", p.decoded+"==", buff, err, p.encoded)
+		}
+	}
+}

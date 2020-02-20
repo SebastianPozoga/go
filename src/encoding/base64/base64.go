@@ -32,6 +32,11 @@ const (
 	NoPadding  rune = -1  // No padding
 )
 
+const (
+	base64InputGrid  = 3 // input safe divider
+	base64OutputGrid = 4 // output size for input safe divider
+)
+
 const encodeStd = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 const encodeURL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
@@ -178,6 +183,68 @@ func (enc *Encoding) EncodeToString(src []byte) string {
 	buf := make([]byte, enc.EncodedLen(len(src)))
 	enc.Encode(buf, src)
 	return string(buf)
+}
+
+type encoderReader struct {
+	base     io.Reader
+	enc      *Encoding
+	buff     []byte
+	buffSize int
+	eof      error
+}
+
+type BufferError int
+
+func (e BufferError) Error() string {
+	return "Output buffer is too small. Minimal buffer size is " + strconv.FormatInt(int64(base64OutputGrid), 10)
+}
+
+// NewEncoderReader create new EncoderReader instance from reader
+func NewEncoderReader(enc *Encoding, base io.Reader) io.Reader {
+	return &encoderReader{
+		base:     base,
+		buffSize: 0,
+		enc:      enc,
+	}
+}
+
+func (reader *encoderReader) Read(dst []byte) (n int, err error) {
+	var (
+		tmp            []byte
+		bytesToProcess int
+	)
+	if reader.buff == nil {
+		reader.buff = make([]byte, len(dst))
+	} else if len(dst) < base64OutputGrid {
+		return 0, BufferError(len(dst))
+	} else if len(dst) > len(reader.buff) {
+		oldBuff := reader.buff
+		reader.buff = make([]byte, len(dst))
+		copy(reader.buff, oldBuff)
+	}
+	if reader.buffSize == 0 && reader.eof != nil {
+		return 0, reader.eof
+	}
+	if reader.eof == nil && reader.buffSize < len(reader.buff) {
+		tmp = reader.buff[reader.buffSize:]
+		if n, reader.eof = reader.base.Read(tmp); reader.eof != nil && reader.eof != io.EOF {
+			return n, err
+		}
+		reader.buffSize += n
+	}
+	if reader.eof != nil {
+		bytesToProcess = reader.buffSize
+	} else {
+		bytesToProcess = reader.buffSize / base64InputGrid * base64InputGrid
+	}
+	maxSize := len(dst) / base64OutputGrid * base64InputGrid
+	if maxSize < bytesToProcess {
+		bytesToProcess = maxSize
+	}
+	reader.enc.Encode(dst, reader.buff[:bytesToProcess])
+	copy(reader.buff, reader.buff[bytesToProcess:])
+	reader.buffSize -= bytesToProcess
+	return (bytesToProcess + base64InputGrid - 1) / base64InputGrid * base64OutputGrid, nil
 }
 
 type encoder struct {
